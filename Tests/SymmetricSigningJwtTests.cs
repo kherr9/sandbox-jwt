@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using Xunit;
 
@@ -99,12 +101,19 @@ namespace Tests
             {
                 var header = new
                 {
-                    alg = "none"
+                    alg = "HS256",
+                    typ = "JWT"
                 };
-                var encodedHeader = Utils.ToBase64(Utils.ToJson(header));
-                var encodedPayload = Utils.ToBase64(Utils.ToJson(claims.ToDictionary(c => c.Type, c => c.Value)));
+                var payload = claims.ToDictionary(c => c.Type, c => c.Value);
 
-                return $"{encodedHeader}.{encodedPayload}.";
+                var encodedHeader = Utils.ToBase64(Utils.ToJson(header));
+                var encodedPayload = Utils.ToBase64(Utils.ToJson(payload));
+
+                var head = $"{encodedHeader}.{encodedPayload}";
+
+                var encodedSignature = Utils.ToBase64(Hmac(head));
+
+                return $"{head}.{encodedSignature}";
             }
 
             public ICollection<Claim> ValidateToken(string token)
@@ -125,6 +134,14 @@ namespace Tests
                 return Utils.FromJson<Dictionary<string, string>>(Utils.FromBase64(encodedPayload))
                     .Select(kvp => new Claim(kvp.Key, kvp.Value))
                     .ToList();
+            }
+
+            private byte[] Hmac(string plainText)
+            {
+                using (var hmac = new HMACSHA256(Convert.FromBase64String(Secret)))
+                {
+                    return hmac.ComputeHash(Encoding.UTF8.GetBytes(plainText));
+                }
             }
         }
     }

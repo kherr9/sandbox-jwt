@@ -12,11 +12,14 @@ namespace Tests
         public static T FromJson<T>(string value) =>
             JsonConvert.DeserializeObject<T>(value);
 
-        public static string ToBase64(string value) =>
-            Convert.ToBase64String(Encoding.UTF8.GetBytes(value))
+        public static string ToBase64(byte[] bytes) =>
+            Convert.ToBase64String(bytes)
                 .Trim('=')
                 .Replace('+', '-')
                 .Replace('/', '_');
+
+        public static string ToBase64(string value) =>
+            ToBase64(Encoding.UTF8.GetBytes(value));
 
         public static string FromBase64(string value)
         {
