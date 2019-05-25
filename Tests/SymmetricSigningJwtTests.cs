@@ -125,10 +125,20 @@ namespace Tests
 
                 var header = Utils.FromJson<dynamic>(Utils.FromBase64(encodedHeader));
 
-
-                if ((header.alg ?? "none") != "none")
+                if (header.alg != "HS256")
                 {
-                    throw new Exception($"Expected alg=none, but got {header.alg}");
+                    throw new Exception($"Expected alg=HS256, but got {header.alg}");
+                }
+
+                if (header.typ != "JWT")
+                {
+                    throw new Exception($"Expected typ=JWT, but got {header.typ}");
+                }
+
+                var computedSignature = Utils.ToBase64(Hmac($"{encodedHeader}.{encodedPayload}"));
+                if (!string.Equals(computedSignature, encodedSignature))
+                {
+                    throw new Exception("signatures do not match");
                 }
 
                 return Utils.FromJson<Dictionary<string, string>>(Utils.FromBase64(encodedPayload))
