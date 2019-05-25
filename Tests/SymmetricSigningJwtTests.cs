@@ -2,10 +2,12 @@
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
+using Newtonsoft.Json.Linq;
 using Xunit;
 
 namespace Tests
@@ -44,6 +46,33 @@ namespace Tests
 
             Assert.Contains(readPayload, c => c.Type == "my_email" && c.Value == "alice@example.com");
             Assert.Contains(readPayload, c => c.Type == "admin" && c.Value == "true");
+        }
+
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Tamper_Payload(IJwtService writer, IJwtService reader)
+        {
+            writer.Secret = "TW9zaGVFcmV6UHJpdmF0ZUtleQ==";
+            reader.Secret = writer.Secret;
+
+            var claims = new[]
+            {
+                new Claim("my_email", "alice@example.com"),
+                new Claim("admin", "false")
+            };
+
+            var token = writer.CreateToken(claims);
+
+            var parts = token.Split('.');
+            var payload = Utils.FromJson<JObject>(Utils.FromBase64(parts[1]));
+            payload["admin"] = "true";
+            parts[1] = Utils.ToBase64(Utils.ToJson(payload));
+
+            var tamperedToken = $"{parts[0]}.{parts[1]}.{parts[2]}";
+
+            var ex = Assert.ThrowsAny<Exception>(() => reader.ValidateToken(tamperedToken));
+
+            Assert.Contains("Signature validation failed", ex.Message);
         }
 
         public interface IJwtService
@@ -138,7 +167,7 @@ namespace Tests
                 var computedSignature = Utils.ToBase64(Hmac($"{encodedHeader}.{encodedPayload}"));
                 if (!string.Equals(computedSignature, encodedSignature))
                 {
-                    throw new Exception("signatures do not match");
+                    throw new Exception("Signature validation failed");
                 }
 
                 return Utils.FromJson<Dictionary<string, string>>(Utils.FromBase64(encodedPayload))
