@@ -98,6 +98,30 @@ namespace Tests
             Assert.Contains("Unable to validate signature, token does not have a signature", ex.Message);
         }
 
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Invalid_Secret(IJwtService writer, IJwtService reader)
+        {
+            writer.Secret = "TW9zaGVFcmV6UHJpdmF0ZUtleQ==";
+            reader.Secret = Utils.GenerateSecretAsString();
+
+            var claims = new[]
+            {
+                new Claim("my_email", "alice@example.com"),
+                new Claim("admin", "false")
+            };
+
+            var token = writer.CreateToken(claims);
+
+            var parts = token.Split('.');
+
+            var tamperedToken = $"{parts[0]}.{parts[1]}.";
+
+            var ex = Assert.ThrowsAny<Exception>(() => reader.ValidateToken(tamperedToken));
+
+            Assert.Contains("Unable to validate signature, token does not have a signature", ex.Message);
+        }
+
         public interface IJwtService
         {
             string Secret { get; set; }

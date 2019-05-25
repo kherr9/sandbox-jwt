@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Security.Cryptography;
 using System.Text;
 using Newtonsoft.Json;
 
@@ -37,5 +38,17 @@ namespace Tests
 
             return Encoding.UTF8.GetString(Convert.FromBase64String(value));
         }
+
+        public static byte[] GenerateSecret()
+        {
+            using (var provider = new RNGCryptoServiceProvider())
+            {
+                byte[] byteArray = new byte[32];
+                provider.GetBytes(byteArray);
+                return byteArray;
+            }
+        }
+
+        public static string GenerateSecretAsString() => Convert.ToBase64String(GenerateSecret());
     }
 }
