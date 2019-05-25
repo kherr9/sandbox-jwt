@@ -27,6 +27,9 @@ namespace Tests
         [MemberData(nameof(Services))]
         public void Can_Verify(IJwtService writer, IJwtService reader)
         {
+            writer.Secret = "TW9zaGVFcmV6UHJpdmF0ZUtleQ==";
+            reader.Secret = writer.Secret;
+
             var claims = new[]
             {
                 new Claim("my_email", "alice@example.com"),
@@ -43,18 +46,21 @@ namespace Tests
 
         public interface IJwtService
         {
+            string Secret { get; set; }
             string CreateToken(IEnumerable<Claim> claims);
             ICollection<Claim> ValidateToken(string token);
         }
 
         public class IdentityModelService : IJwtService
         {
+            public string Secret { get; set; }
+
             public string CreateToken(IEnumerable<Claim> claims)
             {
                 var tokenDescriptor = new SecurityTokenDescriptor
                 {
                     Subject = new ClaimsIdentity(claims),
-                    SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(Convert.FromBase64String("TW9zaGVFcmV6UHJpdmF0ZUtleQ==")), SecurityAlgorithms.HmacSha256Signature)
+                    SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(Convert.FromBase64String(Secret)), SecurityAlgorithms.HmacSha256Signature)
                 };
 
                 var handler = new JwtSecurityTokenHandler
@@ -74,7 +80,7 @@ namespace Tests
                     ValidateAudience = false,
                     RequireExpirationTime = false,
                     RequireSignedTokens = true,
-                    IssuerSigningKey = new SymmetricSecurityKey(Convert.FromBase64String("TW9zaGVFcmV6UHJpdmF0ZUtleQ=="))
+                    IssuerSigningKey = new SymmetricSecurityKey(Convert.FromBase64String(Secret))
                 };
 
                 var handler = new JwtSecurityTokenHandler();
@@ -87,6 +93,8 @@ namespace Tests
 
         public class ManualService : IJwtService
         {
+            public string Secret { get; set; }
+
             public string CreateToken(IEnumerable<Claim> claims)
             {
                 var header = new
