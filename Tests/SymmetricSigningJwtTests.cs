@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -73,6 +72,30 @@ namespace Tests
             var ex = Assert.ThrowsAny<Exception>(() => reader.ValidateToken(tamperedToken));
 
             Assert.Contains("Signature validation failed", ex.Message);
+        }
+
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Remove_Signature(IJwtService writer, IJwtService reader)
+        {
+            writer.Secret = "TW9zaGVFcmV6UHJpdmF0ZUtleQ==";
+            reader.Secret = writer.Secret;
+
+            var claims = new[]
+            {
+                new Claim("my_email", "alice@example.com"),
+                new Claim("admin", "false")
+            };
+
+            var token = writer.CreateToken(claims);
+
+            var parts = token.Split('.');
+
+            var tamperedToken = $"{parts[0]}.{parts[1]}.";
+
+            var ex = Assert.ThrowsAny<Exception>(() => reader.ValidateToken(tamperedToken));
+
+            Assert.Contains("Unable to validate signature, token does not have a signature", ex.Message);
         }
 
         public interface IJwtService
@@ -162,6 +185,11 @@ namespace Tests
                 if (header.typ != "JWT")
                 {
                     throw new Exception($"Expected typ=JWT, but got {header.typ}");
+                }
+
+                if (string.IsNullOrEmpty(encodedSignature))
+                {
+                    throw new Exception("Unable to validate signature, token does not have a signature");
                 }
 
                 var computedSignature = Utils.ToBase64(Hmac($"{encodedHeader}.{encodedPayload}"));
