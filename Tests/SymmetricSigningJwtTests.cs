@@ -1,8 +1,5 @@
-﻿using System;
-using System.Security.Claims;
-using System.Text;
+﻿using System.Security.Claims;
 using Domain.Managers;
-using Newtonsoft.Json;
 using Xunit;
 
 namespace Tests
@@ -43,23 +40,5 @@ namespace Tests
                 email = "alice@example.com"
             };
         }
-    }
-
-    public static class Utils
-    {
-        public static string ToJson(object value) =>
-            JsonConvert.SerializeObject(value);
-
-        public static T FromJson<T>(string value) =>
-            JsonConvert.DeserializeObject<T>(value);
-
-        public static string ToBase64(string value) =>
-            Convert.ToBase64String(Encoding.UTF8.GetBytes(value))
-                .Replace("=", "")
-                .Replace('+', '-')
-                .Replace('/', '_');
-
-        public static string FromBase64(string value) =>
-            Encoding.UTF8.GetString(Convert.FromBase64String(value));
     }
 }

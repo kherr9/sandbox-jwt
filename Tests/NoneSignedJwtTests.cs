@@ -10,42 +10,50 @@ namespace Tests
 {
     public class NoneSignedJwtTests
     {
-        [Fact]
-        public void Can_Validate()
+        public static IEnumerable<object[]> Services
         {
-            var write = new IdentityModelService();
-            var read = new IdentityModelService();
-
-            var payload = new Dictionary<string, string>
+            get
             {
-                { "my_email", "alice@example.com" },
-                { "admin", "true" }
+                var services = new object[] { new IdentityModelService(), new ManualService() };
+                foreach (var x in services)
+                    foreach (var y in services)
+                    {
+                        yield return new[] { x, y };
+                    }
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Can_Validate(IJwtService writer, IJwtService reader)
+        {
+            var claims = new[]
+            {
+                new Claim("my_email", "alice@example.com"),
+                new Claim("admin", "true")
             };
 
-            var token = write.CreateToken(payload);
+            var token = writer.CreateToken(claims);
 
-            var readPayload = read.ValidateToken(token);
+            var readPayload = reader.ValidateToken(token);
 
-            Assert.Equal(payload["my_email"], readPayload["my_email"]);
-            Assert.Equal(payload["admin"], readPayload["admin"]);
+            Assert.Contains(readPayload, c => c.Type == "my_email" && c.Value == "alice@example.com");
+            Assert.Contains(readPayload, c => c.Type == "admin" && c.Value == "true");
         }
 
         public interface IJwtService
         {
-            string CreateToken(Dictionary<string, string> payload);
-            Dictionary<string, string> ValidateToken(string token);
+            string CreateToken(IEnumerable<Claim> claims);
+            ICollection<Claim> ValidateToken(string token);
         }
 
         public class IdentityModelService : IJwtService
         {
-            public string CreateToken(Dictionary<string, string> payload)
+            public string CreateToken(IEnumerable<Claim> claims)
             {
-                var claims = payload.Select(kvp => new Claim(kvp.Key, kvp.Value));
-                var subject = new ClaimsIdentity(claims);
-
                 var tokenDescriptor = new SecurityTokenDescriptor
                 {
-                    Subject = subject
+                    Subject = new ClaimsIdentity(claims)
                 };
 
                 var handler = new JwtSecurityTokenHandler
@@ -57,7 +65,7 @@ namespace Tests
                 return handler.WriteToken(securityToken);
             }
 
-            public Dictionary<string, string> ValidateToken(string token)
+            public ICollection<Claim> ValidateToken(string token)
             {
                 var tokenValidationParameters = new TokenValidationParameters()
                 {
@@ -71,25 +79,25 @@ namespace Tests
 
                 var principal = handler.ValidateToken(token, tokenValidationParameters, out var validatedToken);
 
-                return principal.Claims.ToDictionary(c => c.Type, c => c.Value);
+                return principal.Claims.ToList();
             }
         }
 
         public class ManualService : IJwtService
         {
-            public string CreateToken(Dictionary<string, string> payload)
+            public string CreateToken(IEnumerable<Claim> claims)
             {
                 var header = new
                 {
                     alg = "none"
                 };
                 var encodedHeader = Utils.ToBase64(Utils.ToJson(header));
-                var encodedPayload = Utils.ToBase64(Utils.ToJson(payload));
+                var encodedPayload = Utils.ToBase64(Utils.ToJson(claims.ToDictionary(c => c.Type, c => c.Value)));
 
                 return $"{encodedHeader}.{encodedPayload}.";
             }
 
-            public Dictionary<string, string> ValidateToken(string token)
+            public ICollection<Claim> ValidateToken(string token)
             {
                 var parts = token.Split('.');
                 var encodedHeader = parts[0];
@@ -98,12 +106,15 @@ namespace Tests
 
                 var header = Utils.FromJson<dynamic>(Utils.FromBase64(encodedHeader));
 
-                if (header.algo != "none")
+
+                if ((header.algo ?? "none") != "none")
                 {
                     throw new Exception("Expected algo=none");
                 }
 
-                return Utils.FromJson<Dictionary<string, string>>(Utils.FromBase64(encodedPayload));
+                return Utils.FromJson<Dictionary<string, string>>(Utils.FromBase64(encodedPayload))
+                    .Select(kvp => new Claim(kvp.Key, kvp.Value))
+                    .ToList();
             }
         }
     }
