@@ -107,9 +107,9 @@ namespace Tests
                 var header = Utils.FromJson<dynamic>(Utils.FromBase64(encodedHeader));
 
 
-                if ((header.algo ?? "none") != "none")
+                if ((header.alg ?? "none") != "none")
                 {
-                    throw new Exception("Expected algo=none");
+                    throw new Exception("Expected alg=none, but got {header.alg}");
                 }
 
                 return Utils.FromJson<Dictionary<string, string>>(Utils.FromBase64(encodedPayload))
