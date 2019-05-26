@@ -14,12 +14,12 @@ namespace Tests
         {
             get
             {
-                var services = new object[] { new IdentityModelService(), new ManualService() };
+                var services = new[] { typeof(IdentityModelService), typeof(ManualService) };
                 foreach (var x in services)
-                    foreach (var y in services)
-                    {
-                        yield return new[] { x, y };
-                    }
+                foreach (var y in services)
+                {
+                    yield return new[] { Activator.CreateInstance(x), Activator.CreateInstance(y) };
+                }
             }
         }
 
