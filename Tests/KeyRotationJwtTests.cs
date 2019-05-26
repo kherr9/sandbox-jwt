@@ -29,7 +29,7 @@ namespace Tests
         [MemberData(nameof(Services))]
         public void Can_Verify(IJwtService writer, IJwtService reader)
         {
-            var keys = new Dictionary<string,string>()
+            var keys = new Dictionary<string, string>()
             {
                 { "1", Utils.GenerateSecretAsString() },
                 { "2", Utils.GenerateSecretAsString() }
@@ -44,7 +44,7 @@ namespace Tests
                 new Claim("admin", "true")
             };
 
-            foreach (var keyId in new[] {"1", "2"})
+            foreach (var keyId in new[] { "1", "2" })
             {
                 var token = writer.CreateToken(claims, keyId);
 
@@ -143,12 +143,15 @@ namespace Tests
 
             public string CreateToken(IEnumerable<Claim> claims, string kid)
             {
-                var secret = Secrets[kid];
+                var key = new SymmetricSecurityKey(Convert.FromBase64String(Secrets[kid]))
+                {
+                    KeyId = kid
+                };
 
                 var tokenDescriptor = new SecurityTokenDescriptor
                 {
                     Subject = new ClaimsIdentity(claims),
-                    SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(Convert.FromBase64String(secret)), SecurityAlgorithms.HmacSha256Signature)
+                    SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256Signature)
                 };
 
                 var handler = new JwtSecurityTokenHandler
@@ -163,7 +166,7 @@ namespace Tests
             public ICollection<Claim> ValidateToken(string token)
             {
                 var keys = Secrets
-                    .Select(kvp => new SymmetricSecurityKey(Convert.FromBase64String(kvp.Value)) {KeyId = kvp.Key})
+                    .Select(kvp => new SymmetricSecurityKey(Convert.FromBase64String(kvp.Value)) { KeyId = kvp.Key })
                     .ToList();
 
                 var tokenValidationParameters = new TokenValidationParameters()
@@ -185,8 +188,6 @@ namespace Tests
 
         public class ManualService : IJwtService
         {
-            public string Secret { get; set; }
-
             public Dictionary<string, string> Secrets { get; set; }
 
             public string CreateToken(IEnumerable<Claim> claims, string kid)
@@ -194,7 +195,8 @@ namespace Tests
                 var header = new
                 {
                     alg = "HS256",
-                    typ = "JWT"
+                    typ = "JWT",
+                    kid = kid
                 };
                 var payload = claims.ToDictionary(c => c.Type, c => c.Value);
 
@@ -203,7 +205,7 @@ namespace Tests
 
                 var head = $"{encodedHeader}.{encodedPayload}";
 
-                var encodedSignature = Utils.ToBase64(Hmac(head));
+                var encodedSignature = Utils.ToBase64(Hmac(head, Secrets[kid]));
 
                 return $"{head}.{encodedSignature}";
             }
@@ -227,12 +229,17 @@ namespace Tests
                     throw new Exception($"Expected typ=JWT, but got {header.typ}");
                 }
 
+                if (header.kid == null)
+                {
+                    throw new Exception("Must specify kid");
+                }
+
                 if (string.IsNullOrEmpty(encodedSignature))
                 {
                     throw new Exception("Unable to validate signature, token does not have a signature");
                 }
 
-                var computedSignature = Utils.ToBase64(Hmac($"{encodedHeader}.{encodedPayload}"));
+                var computedSignature = Utils.ToBase64(Hmac($"{encodedHeader}.{encodedPayload}", Secrets[(string)header.kid]));
                 if (!string.Equals(computedSignature, encodedSignature))
                 {
                     throw new Exception("Signature validation failed");
@@ -243,9 +250,9 @@ namespace Tests
                     .ToList();
             }
 
-            private byte[] Hmac(string plainText)
+            private byte[] Hmac(string plainText, string secret)
             {
-                using (var hmac = new HMACSHA256(Convert.FromBase64String(Secret)))
+                using (var hmac = new HMACSHA256(Convert.FromBase64String(secret)))
                 {
                     return hmac.ComputeHash(Encoding.UTF8.GetBytes(plainText));
                 }
