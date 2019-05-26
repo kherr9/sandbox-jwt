@@ -16,11 +16,11 @@ namespace Tests
         {
             get
             {
-                var services = new object[] { new IdentityModelService(), new ManualService() };
+                var services = new [] { typeof(IdentityModelService), typeof(ManualService) };
                 foreach (var x in services)
                     foreach (var y in services)
                     {
-                        yield return new[] { x, y };
+                        yield return new[] { Activator.CreateInstance(x), Activator.CreateInstance(y) };
                     }
             }
         }
@@ -55,80 +55,31 @@ namespace Tests
             }
         }
 
-        ////[Theory]
-        ////[MemberData(nameof(Services))]
-        ////public void Tamper_Payload(IJwtService writer, IJwtService reader)
-        ////{
-        ////    writer.Secret = "TW9zaGVFcmV6UHJpdmF0ZUtleQ==";
-        ////    reader.Secret = writer.Secret;
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Unknown_Kid(IJwtService writer, IJwtService reader)
+        {
+            writer.Secrets = new Dictionary<string, string>()
+            {
+                { "1", Utils.GenerateSecretAsString() }
+            };
+            reader.Secrets = new Dictionary<string, string>()
+            {
+                { "2", Utils.GenerateSecretAsString() }
+            };
 
-        ////    var claims = new[]
-        ////    {
-        ////        new Claim("my_email", "alice@example.com"),
-        ////        new Claim("admin", "false")
-        ////    };
+            var claims = new[]
+            {
+                new Claim("my_email", "alice@example.com"),
+                new Claim("admin", "true")
+            };
 
-        ////    var token = writer.CreateToken(claims);
+            var token = writer.CreateToken(claims, "1");
 
-        ////    var parts = token.Split('.');
-        ////    var payload = Utils.FromJson<JObject>(Utils.FromBase64(parts[1]));
-        ////    payload["admin"] = "true";
-        ////    parts[1] = Utils.ToBase64(Utils.ToJson(payload));
+            var ex = Assert.ThrowsAny<Exception>(() => reader.ValidateToken(token));
 
-        ////    var tamperedToken = $"{parts[0]}.{parts[1]}.{parts[2]}";
-
-        ////    var ex = Assert.ThrowsAny<Exception>(() => reader.ValidateToken(tamperedToken));
-
-        ////    Assert.Contains("Signature validation failed", ex.Message);
-        ////}
-
-        ////[Theory]
-        ////[MemberData(nameof(Services))]
-        ////public void Remove_Signature(IJwtService writer, IJwtService reader)
-        ////{
-        ////    writer.Secret = "TW9zaGVFcmV6UHJpdmF0ZUtleQ==";
-        ////    reader.Secret = writer.Secret;
-
-        ////    var claims = new[]
-        ////    {
-        ////        new Claim("my_email", "alice@example.com"),
-        ////        new Claim("admin", "false")
-        ////    };
-
-        ////    var token = writer.CreateToken(claims);
-
-        ////    var parts = token.Split('.');
-
-        ////    var tamperedToken = $"{parts[0]}.{parts[1]}.";
-
-        ////    var ex = Assert.ThrowsAny<Exception>(() => reader.ValidateToken(tamperedToken));
-
-        ////    Assert.Contains("Unable to validate signature, token does not have a signature", ex.Message);
-        ////}
-
-        ////[Theory]
-        ////[MemberData(nameof(Services))]
-        ////public void Invalid_Secret(IJwtService writer, IJwtService reader)
-        ////{
-        ////    writer.Secret = "TW9zaGVFcmV6UHJpdmF0ZUtleQ==";
-        ////    reader.Secret = Utils.GenerateSecretAsString();
-
-        ////    var claims = new[]
-        ////    {
-        ////        new Claim("my_email", "alice@example.com"),
-        ////        new Claim("admin", "false")
-        ////    };
-
-        ////    var token = writer.CreateToken(claims);
-
-        ////    var parts = token.Split('.');
-
-        ////    var tamperedToken = $"{parts[0]}.{parts[1]}.";
-
-        ////    var ex = Assert.ThrowsAny<Exception>(() => reader.ValidateToken(tamperedToken));
-
-        ////    Assert.Contains("Unable to validate signature, token does not have a signature", ex.Message);
-        ////}
+            Assert.Contains("Signature validation failed. Unable to match keys", ex.Message);
+        }
 
         public interface IJwtService
         {
@@ -234,12 +185,17 @@ namespace Tests
                     throw new Exception("Must specify kid");
                 }
 
+                if (!Secrets.TryGetValue((string) header.kid, out var secret))
+                {
+                    throw new Exception("Signature validation failed. Unable to match keys");
+                }
+
                 if (string.IsNullOrEmpty(encodedSignature))
                 {
                     throw new Exception("Unable to validate signature, token does not have a signature");
                 }
 
-                var computedSignature = Utils.ToBase64(Hmac($"{encodedHeader}.{encodedPayload}", Secrets[(string)header.kid]));
+                var computedSignature = Utils.ToBase64(Hmac($"{encodedHeader}.{encodedPayload}", secret));
                 if (!string.Equals(computedSignature, encodedSignature))
                 {
                     throw new Exception("Signature validation failed");
