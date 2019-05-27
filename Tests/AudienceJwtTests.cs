@@ -6,7 +6,6 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
-using Newtonsoft.Json.Linq;
 using Xunit;
 
 namespace Tests
@@ -226,19 +225,9 @@ namespace Tests
                     typ = "JWT"
                 };
 
-                var payload = claims.ToDictionary(c => c.Type, c => (object)c.Value);
+                claims = claims.Concat(audience.Select(a => new Claim("aud", a)));
 
-                switch (audience.Length)
-                {
-                    case 0:
-                        break;
-                    case 1:
-                        payload["aud"] = audience.Single();
-                        break;
-                    default:
-                        payload["aud"] = audience;
-                        break;
-                }
+                var payload = Utils.ConvertToDictionary(claims);
 
                 var encodedHeader = Utils.ToBase64(Utils.ToJson(header));
                 var encodedPayload = Utils.ToBase64(Utils.ToJson(payload));
@@ -280,24 +269,7 @@ namespace Tests
                     throw new Exception("Signature validation failed");
                 }
 
-                var payloadDict = Utils.FromJson<Dictionary<string, object>>(Utils.FromBase64(encodedPayload));
-
-                var payload = new List<Claim>();
-                foreach (var kvp in payloadDict)
-                {
-                    switch (kvp.Value)
-                    {
-                        case string stringValue:
-                            payload.Add(new Claim(kvp.Key, stringValue));
-                            break;
-                        case JArray stringsValue:
-                            payload.AddRange(stringsValue.Select(x => new Claim(kvp.Key, x.Value<string>())));
-                            break;
-                        default:
-                            throw new Exception($"I don't know how to handle {kvp.Value.GetType().Name}");
-
-                    }
-                }
+                var payload = Utils.ParseClaims(Utils.FromBase64(encodedPayload));
 
                 if (!payload.Any(c => c.Type == "aud" && Audience.Contains(c.Value)))
                 {
