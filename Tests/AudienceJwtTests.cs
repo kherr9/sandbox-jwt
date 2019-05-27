@@ -46,6 +46,7 @@ namespace Tests
 
             Assert.Contains(readPayload, c => c.Type == "my_email" && c.Value == "alice@example.com");
             Assert.Contains(readPayload, c => c.Type == "admin" && c.Value == "true");
+            Assert.Contains(readPayload, c => c.Type == "aud" && c.Value == "alice");
         }
 
         [Theory]
@@ -63,6 +64,27 @@ namespace Tests
             };
 
             var token = producer.CreateToken(claims, new[] { "bob" });
+
+            var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
+
+            Assert.Contains("Audience validation failed", ex.Message);
+        }
+
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Audience_Required(IJwtService producer, IJwtService consumer)
+        {
+            producer.Secret = Utils.GenerateSecretAsString();
+            consumer.Secret = producer.Secret;
+            consumer.Audience = new[] { "alice" };
+
+            var claims = new[]
+            {
+                new Claim("my_email", "alice@example.com"),
+                new Claim("admin", "true")
+            };
+
+            var token = producer.CreateToken(claims, new string[0]);
 
             var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
 
@@ -89,55 +111,53 @@ namespace Tests
 
             Assert.Contains(readPayload, c => c.Type == "my_email" && c.Value == "alice@example.com");
             Assert.Contains(readPayload, c => c.Type == "admin" && c.Value == "true");
+            Assert.Contains(readPayload, c => c.Type == "aud" && c.Value == "alice");
+            Assert.Contains(readPayload, c => c.Type == "aud" && c.Value == "bob");
         }
 
-        ////[Theory]
-        ////[MemberData(nameof(Services))]
-        ////public void Remove_Signature(IJwtService writer, IJwtService reader)
-        ////{
-        ////    writer.Secret = "TW9zaGVFcmV6UHJpdmF0ZUtleQ==";
-        ////    reader.Secret = writer.Secret;
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Token_Include_Multiple_Aud_Where_None_Matches(IJwtService producer, IJwtService consumer)
+        {
+            producer.Secret = Utils.GenerateSecretAsString();
+            consumer.Secret = producer.Secret;
+            consumer.Audience = new[] { "alice" };
 
-        ////    var claims = new[]
-        ////    {
-        ////        new Claim("my_email", "alice@example.com"),
-        ////        new Claim("admin", "false")
-        ////    };
+            var claims = new[]
+            {
+                new Claim("my_email", "alice@example.com"),
+                new Claim("admin", "true")
+            };
 
-        ////    var token = writer.CreateToken(claims);
+            var token = producer.CreateToken(claims, new[] { "bob", "charlie" });
 
-        ////    var parts = token.Split('.');
+            var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
 
-        ////    var tamperedToken = $"{parts[0]}.{parts[1]}.";
+            Assert.Contains("Audience validation failed", ex.Message);
+        }
 
-        ////    var ex = Assert.ThrowsAny<Exception>(() => reader.ValidateToken(tamperedToken));
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Consumer_Has_Many_Audiences(IJwtService producer, IJwtService consumer)
+        {
+            producer.Secret = Utils.GenerateSecretAsString();
+            consumer.Secret = producer.Secret;
+            consumer.Audience = new[] { "alice", "bob" };
 
-        ////    Assert.Contains("Unable to validate signature, token does not have a signature", ex.Message);
-        ////}
+            var claims = new[]
+            {
+                new Claim("my_email", "alice@example.com"),
+                new Claim("admin", "true")
+            };
 
-        ////[Theory]
-        ////[MemberData(nameof(Services))]
-        ////public void Invalid_Secret(IJwtService writer, IJwtService reader)
-        ////{
-        ////    writer.Secret = "TW9zaGVFcmV6UHJpdmF0ZUtleQ==";
-        ////    reader.Secret = Utils.GenerateSecretAsString();
+            var token = producer.CreateToken(claims, new[] { "alice" });
 
-        ////    var claims = new[]
-        ////    {
-        ////        new Claim("my_email", "alice@example.com"),
-        ////        new Claim("admin", "false")
-        ////    };
+            var readPayload = consumer.ValidateToken(token);
 
-        ////    var token = writer.CreateToken(claims);
-
-        ////    var parts = token.Split('.');
-
-        ////    var tamperedToken = $"{parts[0]}.{parts[1]}.";
-
-        ////    var ex = Assert.ThrowsAny<Exception>(() => reader.ValidateToken(tamperedToken));
-
-        ////    Assert.Contains("Unable to validate signature, token does not have a signature", ex.Message);
-        ////}
+            Assert.Contains(readPayload, c => c.Type == "my_email" && c.Value == "alice@example.com");
+            Assert.Contains(readPayload, c => c.Type == "admin" && c.Value == "true");
+            Assert.Contains(readPayload, c => c.Type == "aud" && c.Value == "alice");
+        }
 
         public interface IJwtService
         {
@@ -213,7 +233,7 @@ namespace Tests
                     case 0:
                         break;
                     case 1:
-                        payload["aud"] = audience.First();
+                        payload["aud"] = audience.Single();
                         break;
                     default:
                         payload["aud"] = audience;
