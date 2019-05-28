@@ -79,7 +79,7 @@ namespace Tests
 
         [Theory]
         [MemberData(nameof(Services))]
-        public void Unknown_Audience(IJwtService producer, IJwtService consumer)
+        public void Audience_NotFound(IJwtService producer, IJwtService consumer)
         {
             producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
 
@@ -104,7 +104,7 @@ namespace Tests
 
         [Theory]
         [MemberData(nameof(Services))]
-        public void Required_Audience(IJwtService producer, IJwtService consumer)
+        public void Audience_Required(IJwtService producer, IJwtService consumer)
         {
             producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
 
@@ -129,7 +129,7 @@ namespace Tests
 
         [Theory]
         [MemberData(nameof(Services))]
-        public void Unknown_Issuer(IJwtService producer, IJwtService consumer)
+        public void Issuer_NotFound(IJwtService producer, IJwtService consumer)
         {
             producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
 
@@ -154,7 +154,7 @@ namespace Tests
 
         [Theory]
         [MemberData(nameof(Services))]
-        public void Required_Issuer(IJwtService producer, IJwtService consumer)
+        public void Issuer_Required(IJwtService producer, IJwtService consumer)
         {
             producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
 
