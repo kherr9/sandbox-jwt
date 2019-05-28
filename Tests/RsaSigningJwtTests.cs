@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using Xunit;
 
@@ -14,7 +16,7 @@ namespace Tests
         {
             get
             {
-                var services = new[] { typeof(IdentityModelService) /*, typeof(ManualService)*/ };
+                var services = new[] { typeof(IdentityModelService), typeof(ManualService) };
                 foreach (var x in services)
                     foreach (var y in services)
                     {
@@ -83,7 +85,8 @@ namespace Tests
                 var tokenDescriptor = new SecurityTokenDescriptor
                 {
                     Subject = new ClaimsIdentity(claims),
-                    SigningCredentials = new SigningCredentials(Utils.Rsa.PrivateKeyFromPem(PrivateKeyPem), SecurityAlgorithms.RsaSha256Signature)
+                    SigningCredentials = new SigningCredentials(Utils.Rsa.PrivateKeyFromPem(PrivateKeyPem),
+                        SecurityAlgorithms.RsaSha256Signature)
                 };
 
                 var handler = new JwtSecurityTokenHandler
@@ -124,7 +127,7 @@ namespace Tests
             {
                 var header = new
                 {
-                    alg = "HS256",
+                    alg = "RS256",
                     typ = "JWT"
                 };
                 var payload = claims.ToDictionary(c => c.Type, c => c.Value);
@@ -134,7 +137,7 @@ namespace Tests
 
                 var head = $"{encodedHeader}.{encodedPayload}";
 
-                var encodedSignature = Utils.ToBase64(Hmac(head));
+                var encodedSignature = Utils.ToBase64(RsaSign(head, Utils.Rsa.PrivateKeyFromPem(PrivateKeyPem)));
 
                 return $"{head}.{encodedSignature}";
             }
@@ -148,7 +151,7 @@ namespace Tests
 
                 var header = Utils.FromJson<dynamic>(Utils.FromBase64(encodedHeader));
 
-                if (header.alg != "HS256")
+                if (header.alg != "RS256")
                 {
                     throw new Exception($"Expected alg=HS256, but got {header.alg}");
                 }
@@ -163,8 +166,12 @@ namespace Tests
                     throw new Exception("Unable to validate signature, token does not have a signature");
                 }
 
-                var computedSignature = Utils.ToBase64(Hmac($"{encodedHeader}.{encodedPayload}"));
-                if (!string.Equals(computedSignature, encodedSignature))
+                var head = $"{encodedHeader}.{encodedPayload}";
+
+                if (!VerifySignature(
+                    data: Encoding.UTF8.GetBytes(head),
+                    signature: Encoding.UTF8.GetBytes(Utils.FromBase64(encodedSignature)),
+                    key: Utils.Rsa.PublicKeyFromPem(PublicKeyPem)))
                 {
                     throw new Exception("Signature validation failed");
                 }
@@ -174,9 +181,20 @@ namespace Tests
                     .ToList();
             }
 
-            private byte[] Hmac(string plainText)
+            private byte[] RsaSign(string head, RsaSecurityKey key)
             {
-                throw new NotImplementedException();
+                using (var rsa = RSA.Create(key.Parameters))
+                {
+                    return rsa.SignData(Encoding.UTF8.GetBytes(head), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                }
+            }
+
+            private bool VerifySignature(byte[] data, byte[] signature, RsaSecurityKey key)
+            {
+                using (var rsa = RSA.Create(key.Parameters))
+                {
+                    return rsa.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                }
             }
         }
     }

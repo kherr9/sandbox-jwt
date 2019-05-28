@@ -12,6 +12,7 @@ using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.OpenSsl;
 using Org.BouncyCastle.Security;
+using Xunit;
 
 namespace Tests
 {
@@ -105,6 +106,28 @@ namespace Tests
             return result;
         }
 
+        public class RsaTests
+        {
+            [Fact]
+            public void Can_Verify_Signature()
+            {
+                var data = Encoding.UTF8.GetBytes("Hello World");
+                var hashAlgorithm = HashAlgorithmName.SHA256;
+                var padding = RSASignaturePadding.Pkcs1;
+
+                byte[] signature;
+                using (var producer = RSA.Create(Rsa.PrivateKeyFromPem(Rsa.PrivateKey).Parameters))
+                {
+                    signature = producer.SignData(data, hashAlgorithm, padding);
+                }
+
+                using (var consumer = RSA.Create(Rsa.PublicKeyFromPem(Rsa.PublicKey).Parameters))
+                {
+                    Assert.True(consumer.VerifyData(data, signature, hashAlgorithm, padding));
+                }
+            }
+        }
+
         public static class Rsa
         {
             public static RsaSecurityKey PrivateKeyFromPem(string keyPairPem)
@@ -123,7 +146,6 @@ namespace Tests
                 var rsaParameters = DotNetUtilities.ToRSAParameters(publicKeyParameters);
                 return new RsaSecurityKey(rsaParameters);
             }
-
 
             /*
              * https://gist.github.com/ygotthilf/baa58da5c3dd1f69fae9
