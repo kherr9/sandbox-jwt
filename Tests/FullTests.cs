@@ -33,12 +33,14 @@ namespace Tests
 
             consumer.PublicKeyPem = Utils.Rsa.PublicKey;
             consumer.Audiences = new[] { "https://consumer.com" };
+            consumer.Issuers = new[] { "https://producer.com" };
 
             var claims = new[]
             {
                 new Claim("my_email", "alice@example.com"),
-                new Claim("admin", "true"),
-                new Claim("aud", "https://consumer.com")
+                new Claim("admin", "false"),
+                new Claim("aud", "https://consumer.com"),
+                new Claim("iss", "https://producer.com")
             };
 
             var token = producer.CreateToken(claims);
@@ -46,7 +48,7 @@ namespace Tests
             var readPayload = consumer.ValidateToken(token);
 
             Assert.Contains(readPayload, c => c.Type == "my_email" && c.Value == "alice@example.com");
-            Assert.Contains(readPayload, c => c.Type == "admin" && c.Value == "true");
+            Assert.Contains(readPayload, c => c.Type == "admin" && c.Value == "false");
             Assert.Contains(readPayload, c => c.Type == "aud" && c.Value == "https://consumer.com");
         }
 
@@ -58,11 +60,14 @@ namespace Tests
 
             consumer.PublicKeyPem = Utils.Rsa.OtherPublicKey;
             consumer.Audiences = new[] { "https://consumer.com" };
+            consumer.Issuers = new[] { "https://producer.com" };
 
             var claims = new[]
             {
                 new Claim("my_email", "alice@example.com"),
-                new Claim("admin", "true")
+                new Claim("admin", "false"),
+                new Claim("aud", "https://consumer.com"),
+                new Claim("iss", "https://producer.com")
             };
 
             var token = producer.CreateToken(claims);
@@ -80,12 +85,14 @@ namespace Tests
 
             consumer.PublicKeyPem = Utils.Rsa.PublicKey;
             consumer.Audiences = new[] { "https://consumer.com" };
+            consumer.Issuers = new[] { "https://producer.com" };
 
             var claims = new[]
             {
                 new Claim("my_email", "alice@example.com"),
-                new Claim("admin", "true"),
-                new Claim("aud", "https://acme.com")
+                new Claim("admin", "false"),
+                new Claim("aud", "https://acme.com"),
+                new Claim("iss", "https://producer.com")
             };
 
             var token = producer.CreateToken(claims);
@@ -103,11 +110,14 @@ namespace Tests
 
             consumer.PublicKeyPem = Utils.Rsa.PublicKey;
             consumer.Audiences = new[] { "https://consumer.com" };
+            consumer.Issuers = new[] { "https://producer.com" };
 
             var claims = new[]
             {
                 new Claim("my_email", "alice@example.com"),
-                new Claim("admin", "true")
+                new Claim("admin", "false"),
+                // aud left out
+                new Claim("iss", "https://producer.com")
             };
 
             var token = producer.CreateToken(claims);
@@ -117,11 +127,62 @@ namespace Tests
             Assert.Contains("Audience validation failed", ex.Message);
         }
 
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Unknown_Issuer(IJwtService producer, IJwtService consumer)
+        {
+            producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
+
+            consumer.PublicKeyPem = Utils.Rsa.PublicKey;
+            consumer.Audiences = new[] { "https://consumer.com" };
+            consumer.Issuers = new[] { "https://producer.com" };
+
+            var claims = new[]
+            {
+                new Claim("my_email", "alice@example.com"),
+                new Claim("admin", "false"),
+                new Claim("aud", "https://consumer.com"),
+                new Claim("iss", "https://acme.com")
+            };
+
+            var token = producer.CreateToken(claims);
+
+            var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
+
+            Assert.Contains("Issuer validation failed", ex.Message);
+        }
+
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Required_Issuer(IJwtService producer, IJwtService consumer)
+        {
+            producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
+
+            consumer.PublicKeyPem = Utils.Rsa.PublicKey;
+            consumer.Audiences = new[] { "https://consumer.com" };
+            consumer.Issuers = new[] { "https://producer.com" };
+
+            var claims = new[]
+            {
+                new Claim("my_email", "alice@example.com"),
+                new Claim("admin", "false"),
+                new Claim("aud", "https://consumer.com"),
+                // iss left out 
+            };
+
+            var token = producer.CreateToken(claims);
+
+            var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
+
+            Assert.Contains("Unable to validate issuer", ex.Message);
+        }
+
         public interface IJwtService
         {
             string PrivateKeyPem { get; set; }
             string PublicKeyPem { get; set; }
             string[] Audiences { get; set; }
+            string[] Issuers { get; set; }
             string CreateToken(IEnumerable<Claim> claims);
             ICollection<Claim> ValidateToken(string token);
         }
@@ -133,6 +194,8 @@ namespace Tests
             public string PublicKeyPem { get; set; }
 
             public string[] Audiences { get; set; }
+
+            public string[] Issuers { get; set; }
 
             public string CreateToken(IEnumerable<Claim> claims)
             {
@@ -156,7 +219,8 @@ namespace Tests
             {
                 var tokenValidationParameters = new TokenValidationParameters()
                 {
-                    ValidateIssuer = false,
+                    ValidateIssuer = true,
+                    ValidIssuers = Issuers,
                     ValidateAudience = true,
                     ValidAudiences = Audiences,
                     RequireExpirationTime = false,
@@ -179,6 +243,8 @@ namespace Tests
             public string PublicKeyPem { get; set; }
 
             public string[] Audiences { get; set; }
+
+            public string[] Issuers { get; set; }
 
             public string CreateToken(IEnumerable<Claim> claims)
             {
@@ -236,6 +302,16 @@ namespace Tests
                 if (!payload.Any(c => c.Type == "aud" && Audiences.Contains(c.Value)))
                 {
                     throw new Exception("Audience validation failed");
+                }
+
+                if (payload.All(c => c.Type != "iss"))
+                {
+                    throw new Exception("Unable to validate issuer");
+                }
+
+                if (!payload.Any(c => c.Type == "iss" && Issuers.Contains(c.Value)))
+                {
+                    throw new Exception("Issuer validation failed");
                 }
 
                 return payload;
