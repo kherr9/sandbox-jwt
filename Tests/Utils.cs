@@ -8,6 +8,7 @@ using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
 using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.OpenSsl;
@@ -19,7 +20,11 @@ namespace Tests
     public static class Utils
     {
         public static string ToJson(object value) =>
-            JsonConvert.SerializeObject(value);
+            JsonConvert.SerializeObject(value, new JsonSerializerSettings
+            {
+                NullValueHandling = NullValueHandling.Ignore,
+                ContractResolver = new CamelCasePropertyNamesContractResolver()
+            });
 
         public static T FromJson<T>(string value) =>
             JsonConvert.DeserializeObject<T>(value);
