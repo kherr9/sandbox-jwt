@@ -21,12 +21,20 @@ namespace Tests
                     foreach (var y in services)
                     {
                         var producer = (IJwtService)Activator.CreateInstance(x);
-                        producer.PrivateKey = new KeyValuePair<string, string>("key_001", Utils.Rsa.PrivateKey);
+                        producer.PrivateKey = new Key
+                        {
+                            Id = "key_001",
+                            Value = Utils.Rsa.PrivateKey
+                        };
 
                         var consumer = (IJwtService)Activator.CreateInstance(y);
-                        consumer.PublicKeys = new Dictionary<string, string>()
+                        consumer.PublicKeys = new List<Key>
                         {
-                            { "key_001", Utils.Rsa.PublicKey }
+                            new Key
+                            {
+                                Id = "key_001",
+                                Value = Utils.Rsa.PublicKey
+                            }
                         };
                         consumer.Audiences = new[] { "https://consumer.com" };
                         consumer.Issuers = new[] { "https://producer.com" };
@@ -61,10 +69,10 @@ namespace Tests
 
         [Theory]
         [MemberData(nameof(Services))]
-        public void Different_Public_Key_Fails(IJwtService producer, IJwtService consumer, List<Claim> claims)
+        public void Kid_Different_PublicKey(IJwtService producer, IJwtService consumer, List<Claim> claims)
         {
             // Arrange
-            consumer.PublicKeys["key_001"] = Utils.Rsa.OtherPublicKey;
+            consumer.PublicKeys.Single().Value = Utils.Rsa.OtherPublicKey;
 
             // Act
             var token = producer.CreateToken(claims);
@@ -76,11 +84,25 @@ namespace Tests
 
         [Theory]
         [MemberData(nameof(Services))]
-        public void PublicKey_NotFound(IJwtService producer, IJwtService consumer, List<Claim> claims)
+        public void Kid_NotFound(IJwtService producer, IJwtService consumer, List<Claim> claims)
         {
             // Arrange
-            consumer.PublicKeys.Clear();
-            consumer.PublicKeys["key_002"] = Utils.Rsa.PublicKey;
+            consumer.PublicKeys.Single().Id = "key_002";
+
+            // Act
+            var token = producer.CreateToken(claims);
+            var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
+
+            // Assert
+            Assert.Contains("Signature validation failed", ex.Message);
+        }
+
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Kid_Required(IJwtService producer, IJwtService consumer, List<Claim> claims)
+        {
+            // Arrange
+            producer.PrivateKey.Id = null;
 
             // Act
             var token = producer.CreateToken(claims);
@@ -152,10 +174,16 @@ namespace Tests
             Assert.Contains("Unable to validate issuer", ex.Message);
         }
 
+        public class Key
+        {
+            public string Id { get; set; }
+            public string Value { get; set; }
+        }
+
         public interface IJwtService
         {
-            KeyValuePair<string, string> PrivateKey { get; set; }
-            Dictionary<string, string> PublicKeys { get; set; }
+            Key PrivateKey { get; set; }
+            List<Key> PublicKeys { get; set; }
             string[] Audiences { get; set; }
             string[] Issuers { get; set; }
             string CreateToken(IEnumerable<Claim> claims);
@@ -164,9 +192,9 @@ namespace Tests
 
         public class IdentityModelService : IJwtService
         {
-            public KeyValuePair<string, string> PrivateKey { get; set; }
+            public Key PrivateKey { get; set; }
 
-            public Dictionary<string, string> PublicKeys { get; set; }
+            public List<Key> PublicKeys { get; set; }
 
             public string[] Audiences { get; set; }
 
@@ -175,7 +203,7 @@ namespace Tests
             public string CreateToken(IEnumerable<Claim> claims)
             {
                 var key = Utils.Rsa.PrivateKeyFromPem(PrivateKey.Value);
-                key.KeyId = PrivateKey.Key;
+                key.KeyId = PrivateKey.Id;
 
                 var tokenDescriptor = new SecurityTokenDescriptor
                 {
@@ -204,15 +232,7 @@ namespace Tests
                     RequireSignedTokens = true,
                     IssuerSigningKeyResolver = (s, securityToken, kid, parameters) =>
                     {
-                        if (PublicKeys.TryGetValue(kid, out var publicKey))
-                        {
-                            return new[]
-                            {
-                                Utils.Rsa.PublicKeyFromPem(publicKey)
-                            };
-                        }
-
-                        return Enumerable.Empty<SecurityKey>();
+                        return PublicKeys.Where(k => k.Id == kid).Select(k => Utils.Rsa.PublicKeyFromPem(k.Value));
                     }
                 };
 
@@ -226,9 +246,9 @@ namespace Tests
 
         public class ManualService : IJwtService
         {
-            public KeyValuePair<string, string> PrivateKey { get; set; }
+            public Key PrivateKey { get; set; }
 
-            public Dictionary<string, string> PublicKeys { get; set; }
+            public List<Key> PublicKeys { get; set; }
 
             public string[] Audiences { get; set; }
 
@@ -240,7 +260,7 @@ namespace Tests
                 {
                     alg = "RS256",
                     typ = "JWT",
-                    kid = PrivateKey.Key
+                    kid = PrivateKey.Id
                 };
 
                 var payload = Utils.ConvertToDictionary(claims);
@@ -274,12 +294,9 @@ namespace Tests
                     throw new Exception($"Expected typ=JWT, but got {header.typ}");
                 }
 
-                if (header.kid == null)
-                {
-                    throw new Exception("Must specify kid");
-                }
+                var publicKey = PublicKeys.FirstOrDefault(k => k.Id == (string)header.kid)?.Value;
 
-                if (!PublicKeys.TryGetValue((string)header.kid, out var publicKey))
+                if (publicKey == null)
                 {
                     throw new Exception("Signature validation failed. Unable to match keys");
                 }

@@ -180,11 +180,6 @@ namespace Tests
                     throw new Exception($"Expected typ=JWT, but got {header.typ}");
                 }
 
-                if (header.kid == null)
-                {
-                    throw new Exception("Must specify kid");
-                }
-
                 if (!Secrets.TryGetValue((string) header.kid, out var secret))
                 {
                     throw new Exception("Signature validation failed. Unable to match keys");
