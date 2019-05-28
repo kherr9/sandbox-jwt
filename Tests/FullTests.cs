@@ -35,8 +35,8 @@ namespace Tests
                         {
                             new Claim("my_email", "alice@example.com"),
                             new Claim("admin", "false"),
-                            new Claim("aud", "https://consumer.com"),
-                            new Claim("iss", "https://producer.com")
+                            new Claim("iss", "https://producer.com"),
+                            new Claim("aud", "https://consumer.com")
                         };
 
                         yield return new object[] { producer, consumer, claims };
@@ -55,6 +55,7 @@ namespace Tests
             // Assert
             Assert.Contains(readPayload, c => c.Type == "my_email" && c.Value == "alice@example.com");
             Assert.Contains(readPayload, c => c.Type == "admin" && c.Value == "false");
+            Assert.Contains(readPayload, c => c.Type == "iss" && c.Value == "https://producer.com");
             Assert.Contains(readPayload, c => c.Type == "aud" && c.Value == "https://consumer.com");
         }
 
@@ -64,6 +65,22 @@ namespace Tests
         {
             // Arrange
             consumer.PublicKeys["key_001"] = Utils.Rsa.OtherPublicKey;
+
+            // Act
+            var token = producer.CreateToken(claims);
+            var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
+
+            // Assert
+            Assert.Contains("Signature validation failed", ex.Message);
+        }
+
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void PublicKey_NotFound(IJwtService producer, IJwtService consumer, List<Claim> claims)
+        {
+            // Arrange
+            consumer.PublicKeys.Clear();
+            consumer.PublicKeys["key_002"] = Utils.Rsa.PublicKey;
 
             // Act
             var token = producer.CreateToken(claims);
@@ -177,13 +194,13 @@ namespace Tests
 
             public ICollection<Claim> ValidateToken(string token)
             {
-                var keys = PublicKeys.Select(kvp =>
-                {
-                    var key = Utils.Rsa.PublicKeyFromPem(kvp.Value);
-                    key.KeyId = kvp.Key;
+                ////var keys = PublicKeys.Select(kvp =>
+                ////{
+                ////    var key = Utils.Rsa.PublicKeyFromPem(kvp.Value);
+                ////    key.KeyId = kvp.Key;
 
-                    return key;
-                });
+                ////    return key;
+                ////});
 
                 var tokenValidationParameters = new TokenValidationParameters()
                 {
@@ -193,7 +210,19 @@ namespace Tests
                     ValidAudiences = Audiences,
                     RequireExpirationTime = false,
                     RequireSignedTokens = true,
-                    IssuerSigningKeys = keys
+                    ////IssuerSigningKeys = keys,
+                    IssuerSigningKeyResolver = (s, securityToken, kid, parameters) =>
+                    {
+                        if (PublicKeys.TryGetValue(kid, out var publicKey))
+                        {
+                            return new[]
+                            {
+                                Utils.Rsa.PublicKeyFromPem(publicKey)
+                            };
+                        }
+
+                        return Enumerable.Empty<SecurityKey>();
+                    }
                 };
 
                 var handler = new JwtSecurityTokenHandler();
