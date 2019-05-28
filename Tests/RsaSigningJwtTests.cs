@@ -30,7 +30,6 @@ namespace Tests
         public void Can_Verify(IJwtService producer, IJwtService consumer)
         {
             producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
-            producer.PublicKeyPem = Utils.Rsa.PublicKey;
             consumer.PublicKeyPem = Utils.Rsa.PublicKey;
 
             var claims = new[]
@@ -52,7 +51,6 @@ namespace Tests
         public void Different_Public_Key_Fails(IJwtService producer, IJwtService consumer)
         {
             producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
-            producer.PublicKeyPem = Utils.Rsa.PublicKey;
             consumer.PublicKeyPem = Utils.Rsa.OtherPublicKey;
 
             var claims = new[]
@@ -139,24 +137,10 @@ namespace Tests
 
                 var head = $"{Base64(headerJson)}.{Base64(payloadJson)}";
 
-                var encodedSignature = Base64(Sign(head, PrivateKeyPem));
-
-                {
-                    // verify
-                    var signature = FromBase64ToBytes(encodedSignature);
-                    var isValid = Verify(head, signature, PublicKeyPem);
-                }
+                var encodedSignature = Base64(Sign(GetBytes(head), PrivateKeyPem));
 
                 return $"{head}.{encodedSignature}";
             }
-
-            private static string Json(object value) => Utils.ToJson(value);
-            private static string Base64(byte[] data) => Utils.ToBase64(data);
-            private static string Base64(string data) => Utils.ToBase64(data);
-            private static byte[] FromBase64ToBytes(string data) => Utils.FromBase64ToBytes(data);
-            private static byte[] Sign(string data, string privateKey) => RsaSign(Encoding.UTF8.GetBytes(data), Utils.Rsa.PrivateKeyFromPem(privateKey));
-            private bool Verify(string data, byte[] signature, string publicKey) => VerifySignature(
-                Encoding.UTF8.GetBytes(data), signature, Utils.Rsa.PublicKeyFromPem(publicKey));
 
             public ICollection<Claim> ValidateToken(string token)
             {
@@ -165,7 +149,7 @@ namespace Tests
                 var encodedPayload = parts[1];
                 var encodedSignature = parts[2];
 
-                var header = Utils.FromJson<dynamic>(Utils.FromBase64(encodedHeader));
+                var header = FromJson<dynamic>(FromBase64AsString(encodedHeader));
 
                 if (header.alg != "RS256")
                 {
@@ -184,15 +168,25 @@ namespace Tests
 
                 var head = $"{encodedHeader}.{encodedPayload}";
 
-                if (!Verify(head, FromBase64ToBytes(encodedSignature), PublicKeyPem))
+                if (!Verify(GetBytes(head), FromBase64AsBytes(encodedSignature), PublicKeyPem))
                 {
                     throw new Exception("Signature validation failed");
                 }
 
-                return Utils.FromJson<Dictionary<string, string>>(Utils.FromBase64(encodedPayload))
+                return FromJson<Dictionary<string, string>>(FromBase64AsString(encodedPayload))
                     .Select(kvp => new Claim(kvp.Key, kvp.Value))
                     .ToList();
             }
+
+            private static string Json(object value) => Utils.ToJson(value);
+            private static T FromJson<T>(string json) => Utils.FromJson<T>(json);
+            private static string Base64(byte[] data) => Utils.ToBase64(data);
+            private static string Base64(string data) => Utils.ToBase64(data);
+            private static byte[] FromBase64AsBytes(string data) => Utils.FromBase64ToBytes(data);
+            private static string FromBase64AsString(string data) => Utils.FromBase64(data);
+            public static byte[] GetBytes(string data) => Encoding.UTF8.GetBytes(data);
+            private static byte[] Sign(byte[] data, string privateKey) => RsaSign(data, Utils.Rsa.PrivateKeyFromPem(privateKey));
+            private static bool Verify(byte[] data, byte[] signature, string publicKey) => VerifySignature(data, signature, Utils.Rsa.PublicKeyFromPem(publicKey));
 
             private static byte[] RsaSign(byte[] data, RsaSecurityKey key)
             {
