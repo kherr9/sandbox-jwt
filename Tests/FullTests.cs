@@ -21,10 +21,13 @@ namespace Tests
                     foreach (var y in services)
                     {
                         var producer = (IJwtService)Activator.CreateInstance(x);
-                        producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
+                        producer.PrivateKey = new KeyValuePair<string, string>("key_001", Utils.Rsa.PrivateKey);
 
                         var consumer = (IJwtService)Activator.CreateInstance(y);
-                        consumer.PublicKeyPem = Utils.Rsa.PublicKey;
+                        consumer.PublicKeys = new Dictionary<string, string>()
+                        {
+                            { "key_001", Utils.Rsa.PublicKey }
+                        };
                         consumer.Audiences = new[] { "https://consumer.com" };
                         consumer.Issuers = new[] { "https://producer.com" };
 
@@ -60,7 +63,7 @@ namespace Tests
         public void Different_Public_Key_Fails(IJwtService producer, IJwtService consumer, List<Claim> claims)
         {
             // Arrange
-            consumer.PublicKeyPem = Utils.Rsa.OtherPublicKey;
+            consumer.PublicKeys["key_001"] = Utils.Rsa.OtherPublicKey;
 
             // Act
             var token = producer.CreateToken(claims);
@@ -134,8 +137,8 @@ namespace Tests
 
         public interface IJwtService
         {
-            string PrivateKeyPem { get; set; }
-            string PublicKeyPem { get; set; }
+            KeyValuePair<string, string> PrivateKey { get; set; }
+            Dictionary<string, string> PublicKeys { get; set; }
             string[] Audiences { get; set; }
             string[] Issuers { get; set; }
             string CreateToken(IEnumerable<Claim> claims);
@@ -144,9 +147,9 @@ namespace Tests
 
         public class IdentityModelService : IJwtService
         {
-            public string PrivateKeyPem { get; set; }
+            public KeyValuePair<string, string> PrivateKey { get; set; }
 
-            public string PublicKeyPem { get; set; }
+            public Dictionary<string, string> PublicKeys { get; set; }
 
             public string[] Audiences { get; set; }
 
@@ -154,11 +157,13 @@ namespace Tests
 
             public string CreateToken(IEnumerable<Claim> claims)
             {
+                var key = Utils.Rsa.PrivateKeyFromPem(PrivateKey.Value);
+                key.KeyId = PrivateKey.Key;
+
                 var tokenDescriptor = new SecurityTokenDescriptor
                 {
                     Subject = new ClaimsIdentity(claims),
-                    SigningCredentials = new SigningCredentials(Utils.Rsa.PrivateKeyFromPem(PrivateKeyPem),
-                        SecurityAlgorithms.RsaSha256Signature)
+                    SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.RsaSha256Signature)
                 };
 
                 var handler = new JwtSecurityTokenHandler
@@ -172,6 +177,14 @@ namespace Tests
 
             public ICollection<Claim> ValidateToken(string token)
             {
+                var keys = PublicKeys.Select(kvp =>
+                {
+                    var key = Utils.Rsa.PublicKeyFromPem(kvp.Value);
+                    key.KeyId = kvp.Key;
+
+                    return key;
+                });
+
                 var tokenValidationParameters = new TokenValidationParameters()
                 {
                     ValidateIssuer = true,
@@ -180,7 +193,7 @@ namespace Tests
                     ValidAudiences = Audiences,
                     RequireExpirationTime = false,
                     RequireSignedTokens = true,
-                    IssuerSigningKey = Utils.Rsa.PublicKeyFromPem(PublicKeyPem)
+                    IssuerSigningKeys = keys
                 };
 
                 var handler = new JwtSecurityTokenHandler();
@@ -193,9 +206,9 @@ namespace Tests
 
         public class ManualService : IJwtService
         {
-            public string PrivateKeyPem { get; set; }
+            public KeyValuePair<string, string> PrivateKey { get; set; }
 
-            public string PublicKeyPem { get; set; }
+            public Dictionary<string, string> PublicKeys { get; set; }
 
             public string[] Audiences { get; set; }
 
@@ -206,7 +219,8 @@ namespace Tests
                 var header = new
                 {
                     alg = "RS256",
-                    typ = "JWT"
+                    typ = "JWT",
+                    kid = PrivateKey.Key
                 };
 
                 var payload = Utils.ConvertToDictionary(claims);
@@ -216,7 +230,7 @@ namespace Tests
 
                 var head = $"{Base64(headerJson)}.{Base64(payloadJson)}";
 
-                var encodedSignature = Base64(Sign(GetBytes(head), PrivateKeyPem));
+                var encodedSignature = Base64(Sign(GetBytes(head), PrivateKey.Value));
 
                 return $"{head}.{encodedSignature}";
             }
@@ -240,6 +254,16 @@ namespace Tests
                     throw new Exception($"Expected typ=JWT, but got {header.typ}");
                 }
 
+                if (header.kid == null)
+                {
+                    throw new Exception("Must specify kid");
+                }
+
+                if (!PublicKeys.TryGetValue((string)header.kid, out var publicKey))
+                {
+                    throw new Exception("Signature validation failed. Unable to match keys");
+                }
+
                 if (string.IsNullOrEmpty(encodedSignature))
                 {
                     throw new Exception("Unable to validate signature, token does not have a signature");
@@ -247,7 +271,7 @@ namespace Tests
 
                 var head = $"{encodedHeader}.{encodedPayload}";
 
-                if (!Verify(GetBytes(head), FromBase64AsBytes(encodedSignature), PublicKeyPem))
+                if (!Verify(GetBytes(head), FromBase64AsBytes(encodedSignature), publicKey))
                 {
                     throw new Exception("Signature validation failed");
                 }
