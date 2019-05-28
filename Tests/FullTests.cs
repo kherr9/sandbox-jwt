@@ -6,6 +6,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
+using Newtonsoft.Json.Linq;
 using Xunit;
 
 namespace Tests
@@ -65,6 +66,48 @@ namespace Tests
             Assert.Contains(readPayload, c => c.Type == "admin" && c.Value == "false");
             Assert.Contains(readPayload, c => c.Type == "iss" && c.Value == "https://producer.com");
             Assert.Contains(readPayload, c => c.Type == "aud" && c.Value == "https://consumer.com");
+        }
+
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Elevate_Privilege_Attack(IJwtService producer, IJwtService consumer, List<Claim> claims)
+        {
+            // Arrange
+            var token = producer.CreateToken(claims);
+
+            // Act
+            var parts = token.Split('.');
+            var payload = Utils.FromJson<dynamic>(Utils.FromBase64(parts[1]));
+            payload.admin = "true";
+            parts[1] = Utils.ToBase64(Utils.ToJson(payload));
+
+            var tamperedToken = $"{parts[0]}.{parts[1]}.{parts[2]}";
+
+            var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(tamperedToken));
+
+            // Assert
+            Assert.Contains("Signature validation failed", ex.Message);
+        }
+
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Change_Alg_To_None_Attack(IJwtService producer, IJwtService consumer, List<Claim> claims)
+        {
+            // Arrange
+            var token = producer.CreateToken(claims);
+
+            // Act
+            var parts = token.Split('.');
+            var payload = Utils.FromJson<dynamic>(Utils.FromBase64(parts[0]));
+            payload.alg = "none";
+            parts[0] = Utils.ToBase64(Utils.ToJson(payload));
+
+            var tamperedToken = $"{parts[0]}.{parts[1]}.";
+
+            var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(tamperedToken));
+
+            // Assert
+            Assert.Contains("Unable to validate signature, token does not have a signature", ex.Message);
         }
 
         [Theory]
@@ -284,11 +327,6 @@ namespace Tests
 
                 var header = FromJson<dynamic>(FromBase64AsString(encodedHeader));
 
-                if (header.alg != "RS256")
-                {
-                    throw new Exception($"Expected alg=HS256, but got {header.alg}");
-                }
-
                 if (header.typ != "JWT")
                 {
                     throw new Exception($"Expected typ=JWT, but got {header.typ}");
@@ -304,6 +342,11 @@ namespace Tests
                 if (string.IsNullOrEmpty(encodedSignature))
                 {
                     throw new Exception("Unable to validate signature, token does not have a signature");
+                }
+
+                if (header.alg != "RS256")
+                {
+                    throw new Exception($"Expected alg=HS256, but got {header.alg}");
                 }
 
                 var head = $"{encodedHeader}.{encodedPayload}";
