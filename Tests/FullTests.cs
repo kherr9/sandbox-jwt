@@ -135,6 +135,18 @@ namespace Tests
 
         [Theory]
         [MemberData(nameof(Services))]
+        public void Kid_Consumer_Have_Multiple_Public_Keys(IJwtService producer, IJwtService consumer, List<Claim> claims)
+        {
+            // Arrange
+            consumer.PublicKeys.Add(new Key { Id = "key_002", Value = Utils.Rsa.OtherPublicKey });
+
+            // Act
+            var token = producer.CreateToken(claims);
+            consumer.ValidateToken(token);
+        }
+
+        [Theory]
+        [MemberData(nameof(Services))]
         public void Kid_NotFound(IJwtService producer, IJwtService consumer, List<Claim> claims)
         {
             // Arrange
