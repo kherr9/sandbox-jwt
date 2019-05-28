@@ -6,7 +6,6 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
-using Newtonsoft.Json.Linq;
 using Xunit;
 
 namespace Tests
@@ -15,7 +14,7 @@ namespace Tests
     {
         public static int Epoc(this DateTime value)
         {
-            var t = DateTime.UtcNow - new DateTime(1970, 1, 1);
+            var t = value - new DateTime(1970, 1, 1);
             return (int)t.TotalSeconds;
         }
     }
@@ -49,12 +48,18 @@ namespace Tests
                         consumer.Audiences = new[] { "https://consumer.com" };
                         consumer.Issuers = new[] { "https://producer.com" };
 
+                        var now = DateTime.UtcNow;
+                        var exp = now.AddHours(1);
+
                         var claims = new List<Claim>
                         {
                             new Claim("my_email", "alice@example.com"),
                             new Claim("admin", "false"),
                             new Claim("iss", "https://producer.com"),
-                            new Claim("aud", "https://consumer.com")
+                            new Claim("aud", "https://consumer.com"),
+                            new Claim("nbf", now.Epoc().ToString(), "http://www.w3.org/2001/XMLSchema#integer"),
+                            new Claim("exp", exp.Epoc().ToString(), "http://www.w3.org/2001/XMLSchema#integer"),
+                            new Claim("iat", now.Epoc().ToString(), "http://www.w3.org/2001/XMLSchema#integer"),
                         };
 
                         yield return new object[] { producer, consumer, claims };
@@ -75,6 +80,9 @@ namespace Tests
             Assert.Contains(readPayload, c => c.Type == "admin" && c.Value == "false");
             Assert.Contains(readPayload, c => c.Type == "iss" && c.Value == "https://producer.com");
             Assert.Contains(readPayload, c => c.Type == "aud" && c.Value == "https://consumer.com");
+            Assert.Contains(readPayload, c => c.Type == "nbf");
+            Assert.Contains(readPayload, c => c.Type == "exp");
+            Assert.Contains(readPayload, c => c.Type == "iat");
         }
 
         [Theory]
@@ -226,6 +234,38 @@ namespace Tests
             Assert.Contains("Unable to validate issuer", ex.Message);
         }
 
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Exp_Required(IJwtService producer, IJwtService consumer, List<Claim> claims)
+        {
+            // Arrange
+            claims.RemoveAll(c => c.Type == "exp");
+
+            // Act
+            var token = producer.CreateToken(claims);
+            var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
+
+            // Assert
+            Assert.Contains("The token is missing an Expiration Time", ex.Message);
+        }
+
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Exp_Past_Date(IJwtService producer, IJwtService consumer, List<Claim> claims)
+        {
+            // Arrange
+            claims.RemoveAll(c => c.Type == "exp");
+            var tenMinAgo = DateTime.UtcNow.Epoc();
+            claims.Add(new Claim("exp", tenMinAgo.ToString(), "http://www.w3.org/2001/XMLSchema#integer"));
+
+            // Act
+            var token = producer.CreateToken(claims);
+            var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
+
+            // Assert
+            Assert.Contains("The token is expired", ex.Message);
+        }
+
         public class Key
         {
             public string Id { get; set; }
@@ -260,15 +300,12 @@ namespace Tests
                 var tokenDescriptor = new SecurityTokenDescriptor
                 {
                     Subject = new ClaimsIdentity(claims),
-                    SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.RsaSha256Signature),
-                    ////Expires = null,
-                    ////IssuedAt = null,
-                    ////NotBefore = null
+                    SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.RsaSha256Signature)
                 };
 
                 var handler = new JwtSecurityTokenHandler
                 {
-                    SetDefaultTimesOnTokenCreation = true
+                    SetDefaultTimesOnTokenCreation = false
                 };
 
                 var securityToken = handler.CreateToken(tokenDescriptor);
@@ -284,6 +321,7 @@ namespace Tests
                     ValidateAudience = true,
                     ValidAudiences = Audiences,
                     RequireExpirationTime = true,
+                    ClockSkew = TimeSpan.Zero,
                     ValidateLifetime = true,
                     RequireSignedTokens = true,
                     IssuerSigningKeyResolver = (s, securityToken, kid, parameters) =>
@@ -321,13 +359,6 @@ namespace Tests
 
                 var now = DateTime.UtcNow;
                 var exp = now.AddHours(1);
-
-                claims = claims.Concat(new[]
-                {
-                    new Claim("nbf", now.Epoc().ToString(), "http://www.w3.org/2001/XMLSchema#integer"),
-                    new Claim("exp", exp.Epoc().ToString(), "http://www.w3.org/2001/XMLSchema#integer"),
-                    new Claim("iat", now.Epoc().ToString(), "http://www.w3.org/2001/XMLSchema#integer"),
-                });
 
                 var payload = Utils.ConvertToDictionary(claims);
 
@@ -394,6 +425,16 @@ namespace Tests
                 if (!payload.Any(c => c.Type == "iss" && Issuers.Contains(c.Value)))
                 {
                     throw new Exception("Issuer validation failed");
+                }
+
+                if (payload.All(c => c.Type != "exp"))
+                {
+                    throw new Exception("The token is missing an Expiration Time");
+                }
+
+                if (DateTime.UtcNow.Epoc() >= int.Parse(payload.Single(c => c.Type == "exp").Value))
+                {
+                    throw new Exception("The token is expired");
                 }
 
                 return payload;
