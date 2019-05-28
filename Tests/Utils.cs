@@ -50,6 +50,23 @@ namespace Tests
             return Encoding.UTF8.GetString(Convert.FromBase64String(value));
         }
 
+        public static byte[] FromBase64ToBytes(string value)
+        {
+            value = value.Replace('_', '/').Replace('-', '+');
+
+            switch (value.Length % 4)
+            {
+                case 2:
+                    value += "==";
+                    break;
+                case 3:
+                    value += "=";
+                    break;
+            }
+
+            return Convert.FromBase64String(value);
+        }
+
         public static byte[] GenerateSecret()
         {
             using (var provider = new RNGCryptoServiceProvider())

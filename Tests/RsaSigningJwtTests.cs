@@ -30,6 +30,7 @@ namespace Tests
         public void Can_Verify(IJwtService producer, IJwtService consumer)
         {
             producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
+            producer.PublicKeyPem = Utils.Rsa.PublicKey;
             consumer.PublicKeyPem = Utils.Rsa.PublicKey;
 
             var claims = new[]
@@ -51,6 +52,7 @@ namespace Tests
         public void Different_Public_Key_Fails(IJwtService producer, IJwtService consumer)
         {
             producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
+            producer.PublicKeyPem = Utils.Rsa.PublicKey;
             consumer.PublicKeyPem = Utils.Rsa.OtherPublicKey;
 
             var claims = new[]
@@ -132,15 +134,29 @@ namespace Tests
                 };
                 var payload = claims.ToDictionary(c => c.Type, c => c.Value);
 
-                var encodedHeader = Utils.ToBase64(Utils.ToJson(header));
-                var encodedPayload = Utils.ToBase64(Utils.ToJson(payload));
+                var headerJson = Json(header);
+                var payloadJson = Json(payload);
 
-                var head = $"{encodedHeader}.{encodedPayload}";
+                var head = $"{Base64(headerJson)}.{Base64(payloadJson)}";
 
-                var encodedSignature = Utils.ToBase64(RsaSign(head, Utils.Rsa.PrivateKeyFromPem(PrivateKeyPem)));
+                var encodedSignature = Base64(Sign(head, PrivateKeyPem));
+
+                {
+                    // verify
+                    var signature = FromBase64ToBytes(encodedSignature);
+                    var isValid = Verify(head, signature, PublicKeyPem);
+                }
 
                 return $"{head}.{encodedSignature}";
             }
+
+            private static string Json(object value) => Utils.ToJson(value);
+            private static string Base64(byte[] data) => Utils.ToBase64(data);
+            private static string Base64(string data) => Utils.ToBase64(data);
+            private static byte[] FromBase64ToBytes(string data) => Utils.FromBase64ToBytes(data);
+            private static byte[] Sign(string data, string privateKey) => RsaSign(Encoding.UTF8.GetBytes(data), Utils.Rsa.PrivateKeyFromPem(privateKey));
+            private bool Verify(string data, byte[] signature, string publicKey) => VerifySignature(
+                Encoding.UTF8.GetBytes(data), signature, Utils.Rsa.PublicKeyFromPem(publicKey));
 
             public ICollection<Claim> ValidateToken(string token)
             {
@@ -168,10 +184,7 @@ namespace Tests
 
                 var head = $"{encodedHeader}.{encodedPayload}";
 
-                if (!VerifySignature(
-                    data: Encoding.UTF8.GetBytes(head),
-                    signature: Encoding.UTF8.GetBytes(Utils.FromBase64(encodedSignature)),
-                    key: Utils.Rsa.PublicKeyFromPem(PublicKeyPem)))
+                if (!Verify(head, FromBase64ToBytes(encodedSignature), PublicKeyPem))
                 {
                     throw new Exception("Signature validation failed");
                 }
@@ -181,15 +194,15 @@ namespace Tests
                     .ToList();
             }
 
-            private byte[] RsaSign(string head, RsaSecurityKey key)
+            private static byte[] RsaSign(byte[] data, RsaSecurityKey key)
             {
                 using (var rsa = RSA.Create(key.Parameters))
                 {
-                    return rsa.SignData(Encoding.UTF8.GetBytes(head), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                    return rsa.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
                 }
             }
 
-            private bool VerifySignature(byte[] data, byte[] signature, RsaSecurityKey key)
+            private static bool VerifySignature(byte[] data, byte[] signature, RsaSecurityKey key)
             {
                 using (var rsa = RSA.Create(key.Parameters))
                 {
