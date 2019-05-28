@@ -20,33 +20,36 @@ namespace Tests
                 foreach (var x in services)
                     foreach (var y in services)
                     {
-                        yield return new[] { Activator.CreateInstance(x), Activator.CreateInstance(y) };
+                        var producer = (IJwtService)Activator.CreateInstance(x);
+                        producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
+
+                        var consumer = (IJwtService)Activator.CreateInstance(y);
+                        consumer.PublicKeyPem = Utils.Rsa.PublicKey;
+                        consumer.Audiences = new[] { "https://consumer.com" };
+                        consumer.Issuers = new[] { "https://producer.com" };
+
+                        var claims = new List<Claim>
+                        {
+                            new Claim("my_email", "alice@example.com"),
+                            new Claim("admin", "false"),
+                            new Claim("aud", "https://consumer.com"),
+                            new Claim("iss", "https://producer.com")
+                        };
+
+                        yield return new object[] { producer, consumer, claims };
                     }
             }
         }
 
         [Theory]
         [MemberData(nameof(Services))]
-        public void Can_Verify(IJwtService producer, IJwtService consumer)
+        public void Can_Verify(IJwtService producer, IJwtService consumer, List<Claim> claims)
         {
-            producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
-
-            consumer.PublicKeyPem = Utils.Rsa.PublicKey;
-            consumer.Audiences = new[] { "https://consumer.com" };
-            consumer.Issuers = new[] { "https://producer.com" };
-
-            var claims = new[]
-            {
-                new Claim("my_email", "alice@example.com"),
-                new Claim("admin", "false"),
-                new Claim("aud", "https://consumer.com"),
-                new Claim("iss", "https://producer.com")
-            };
-
+            // Act
             var token = producer.CreateToken(claims);
-
             var readPayload = consumer.ValidateToken(token);
 
+            // Assert
             Assert.Contains(readPayload, c => c.Type == "my_email" && c.Value == "alice@example.com");
             Assert.Contains(readPayload, c => c.Type == "admin" && c.Value == "false");
             Assert.Contains(readPayload, c => c.Type == "aud" && c.Value == "https://consumer.com");
@@ -54,126 +57,78 @@ namespace Tests
 
         [Theory]
         [MemberData(nameof(Services))]
-        public void Different_Public_Key_Fails(IJwtService producer, IJwtService consumer)
+        public void Different_Public_Key_Fails(IJwtService producer, IJwtService consumer, List<Claim> claims)
         {
-            producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
-
+            // Arrange
             consumer.PublicKeyPem = Utils.Rsa.OtherPublicKey;
-            consumer.Audiences = new[] { "https://consumer.com" };
-            consumer.Issuers = new[] { "https://producer.com" };
 
-            var claims = new[]
-            {
-                new Claim("my_email", "alice@example.com"),
-                new Claim("admin", "false"),
-                new Claim("aud", "https://consumer.com"),
-                new Claim("iss", "https://producer.com")
-            };
-
+            // Act
             var token = producer.CreateToken(claims);
-
             var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
 
+            // Assert
             Assert.Contains("Signature validation failed", ex.Message);
         }
 
         [Theory]
         [MemberData(nameof(Services))]
-        public void Audience_NotFound(IJwtService producer, IJwtService consumer)
+        public void Audience_NotFound(IJwtService producer, IJwtService consumer, List<Claim> claims)
         {
-            producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
+            // Arrange
+            claims.RemoveAll(c => c.Type == "aud");
+            claims.Add(new Claim("aud", "https://acme.com"));
 
-            consumer.PublicKeyPem = Utils.Rsa.PublicKey;
-            consumer.Audiences = new[] { "https://consumer.com" };
-            consumer.Issuers = new[] { "https://producer.com" };
-
-            var claims = new[]
-            {
-                new Claim("my_email", "alice@example.com"),
-                new Claim("admin", "false"),
-                new Claim("aud", "https://acme.com"),
-                new Claim("iss", "https://producer.com")
-            };
-
+            // Act
             var token = producer.CreateToken(claims);
-
             var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
 
+            // Assert
             Assert.Contains("Audience validation failed", ex.Message);
         }
 
         [Theory]
         [MemberData(nameof(Services))]
-        public void Audience_Required(IJwtService producer, IJwtService consumer)
+        public void Audience_Required(IJwtService producer, IJwtService consumer, List<Claim> claims)
         {
-            producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
+            // Arrange
+            claims.RemoveAll(c => c.Type == "aud");
 
-            consumer.PublicKeyPem = Utils.Rsa.PublicKey;
-            consumer.Audiences = new[] { "https://consumer.com" };
-            consumer.Issuers = new[] { "https://producer.com" };
-
-            var claims = new[]
-            {
-                new Claim("my_email", "alice@example.com"),
-                new Claim("admin", "false"),
-                // aud left out
-                new Claim("iss", "https://producer.com")
-            };
-
+            // Act
             var token = producer.CreateToken(claims);
-
             var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
 
+            // Assert
             Assert.Contains("Audience validation failed", ex.Message);
         }
 
         [Theory]
         [MemberData(nameof(Services))]
-        public void Issuer_NotFound(IJwtService producer, IJwtService consumer)
+        public void Issuer_NotFound(IJwtService producer, IJwtService consumer, List<Claim> claims)
         {
-            producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
+            // Arrange
+            claims.RemoveAll(c => c.Type == "iss");
+            claims.Add(new Claim("iss", "https://acme.com"));
 
-            consumer.PublicKeyPem = Utils.Rsa.PublicKey;
-            consumer.Audiences = new[] { "https://consumer.com" };
-            consumer.Issuers = new[] { "https://producer.com" };
-
-            var claims = new[]
-            {
-                new Claim("my_email", "alice@example.com"),
-                new Claim("admin", "false"),
-                new Claim("aud", "https://consumer.com"),
-                new Claim("iss", "https://acme.com")
-            };
-
+            // Act
             var token = producer.CreateToken(claims);
-
             var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
 
+            // Assert
             Assert.Contains("Issuer validation failed", ex.Message);
         }
 
         [Theory]
         [MemberData(nameof(Services))]
-        public void Issuer_Required(IJwtService producer, IJwtService consumer)
+        public void Issuer_Required(IJwtService producer, IJwtService consumer, List<Claim> claims)
         {
-            producer.PrivateKeyPem = Utils.Rsa.PrivateKey;
+            // Arrange
+            claims.RemoveAll(c => c.Type == "iss");
 
-            consumer.PublicKeyPem = Utils.Rsa.PublicKey;
-            consumer.Audiences = new[] { "https://consumer.com" };
-            consumer.Issuers = new[] { "https://producer.com" };
-
-            var claims = new[]
-            {
-                new Claim("my_email", "alice@example.com"),
-                new Claim("admin", "false"),
-                new Claim("aud", "https://consumer.com"),
-                // iss left out 
-            };
-
+            // Act
             var token = producer.CreateToken(claims);
-
             var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
 
+            // Assert
             Assert.Contains("Unable to validate issuer", ex.Message);
         }
 
