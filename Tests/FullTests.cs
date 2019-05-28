@@ -11,6 +11,15 @@ using Xunit;
 
 namespace Tests
 {
+    public static class DateTimeExtensions
+    {
+        public static int Epoc(this DateTime value)
+        {
+            var t = DateTime.UtcNow - new DateTime(1970, 1, 1);
+            return (int)t.TotalSeconds;
+        }
+    }
+
     public class FullJwtTests
     {
         public static IEnumerable<object[]> Services
@@ -251,12 +260,15 @@ namespace Tests
                 var tokenDescriptor = new SecurityTokenDescriptor
                 {
                     Subject = new ClaimsIdentity(claims),
-                    SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.RsaSha256Signature)
+                    SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.RsaSha256Signature),
+                    ////Expires = null,
+                    ////IssuedAt = null,
+                    ////NotBefore = null
                 };
 
                 var handler = new JwtSecurityTokenHandler
                 {
-                    SetDefaultTimesOnTokenCreation = false
+                    SetDefaultTimesOnTokenCreation = true
                 };
 
                 var securityToken = handler.CreateToken(tokenDescriptor);
@@ -265,13 +277,14 @@ namespace Tests
 
             public ICollection<Claim> ValidateToken(string token)
             {
-                var tokenValidationParameters = new TokenValidationParameters()
+                var tokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
                     ValidIssuers = Issuers,
                     ValidateAudience = true,
                     ValidAudiences = Audiences,
-                    RequireExpirationTime = false,
+                    RequireExpirationTime = true,
+                    ValidateLifetime = true,
                     RequireSignedTokens = true,
                     IssuerSigningKeyResolver = (s, securityToken, kid, parameters) =>
                     {
@@ -305,6 +318,16 @@ namespace Tests
                     typ = "JWT",
                     kid = PrivateKey.Id
                 };
+
+                var now = DateTime.UtcNow;
+                var exp = now.AddHours(1);
+
+                claims = claims.Concat(new[]
+                {
+                    new Claim("nbf", now.Epoc().ToString(), "http://www.w3.org/2001/XMLSchema#integer"),
+                    new Claim("exp", exp.Epoc().ToString(), "http://www.w3.org/2001/XMLSchema#integer"),
+                    new Claim("iat", now.Epoc().ToString(), "http://www.w3.org/2001/XMLSchema#integer"),
+                });
 
                 var payload = Utils.ConvertToDictionary(claims);
 

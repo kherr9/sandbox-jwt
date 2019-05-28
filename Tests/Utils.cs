@@ -119,9 +119,11 @@ namespace Tests
                     case JArray stringsValue:
                         result.AddRange(stringsValue.Select(x => new Claim(kvp.Key, x.Value<string>())));
                         break;
+                    case long intValue:
+                        result.Add(new Claim(kvp.Key, intValue.ToString(), "http://www.w3.org/2001/XMLSchema#long"));
+                        break;
                     default:
                         throw new Exception($"I don't know how to handle {kvp.Value.GetType().Name}");
-
                 }
             }
 
