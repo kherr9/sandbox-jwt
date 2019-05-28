@@ -296,6 +296,7 @@ namespace Tests
             // Assert
             Assert.Contains("The token is not yet valid", ex.Message);
         }
+
         public class Key
         {
             public string Id { get; set; }
@@ -351,7 +352,7 @@ namespace Tests
                     ValidateAudience = true,
                     ValidAudiences = Audiences,
                     RequireExpirationTime = true,
-                    ClockSkew = TimeSpan.Zero,
+                    ClockSkew = TimeSpan.Zero, // for testing only, suggest 2 minutes?
                     ValidateLifetime = true,
                     RequireSignedTokens = true,
                     IssuerSigningKeyResolver = (s, securityToken, kid, parameters) =>
