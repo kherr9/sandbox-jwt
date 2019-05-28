@@ -255,8 +255,8 @@ namespace Tests
         {
             // Arrange
             claims.RemoveAll(c => c.Type == "exp");
-            var tenMinAgo = DateTime.UtcNow.Epoc();
-            claims.Add(new Claim("exp", tenMinAgo.ToString(), "http://www.w3.org/2001/XMLSchema#integer"));
+            // IdentityModel doesn't allow past dates
+            claims.Add(new Claim("exp", DateTime.UtcNow.Epoc().ToString(), "http://www.w3.org/2001/XMLSchema#integer"));
 
             // Act
             var token = producer.CreateToken(claims);
@@ -266,6 +266,33 @@ namespace Tests
             Assert.Contains("The token is expired", ex.Message);
         }
 
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Nbf_Optional(IJwtService producer, IJwtService consumer, List<Claim> claims)
+        {
+            // Arrange
+            claims.RemoveAll(c => c.Type == "nbf");
+
+            // Act
+            var token = producer.CreateToken(claims);
+            consumer.ValidateToken(token);
+        }
+
+        [Theory]
+        [MemberData(nameof(Services))]
+        public void Nbf_Future_Date(IJwtService producer, IJwtService consumer, List<Claim> claims)
+        {
+            // Arrange
+            claims.RemoveAll(c => c.Type == "nbf");
+            claims.Add(new Claim("nbf", DateTime.UtcNow.AddHours(1).Epoc().ToString(), "http://www.w3.org/2001/XMLSchema#integer"));
+
+            // Act
+            var token = producer.CreateToken(claims);
+            var ex = Assert.ThrowsAny<Exception>(() => consumer.ValidateToken(token));
+
+            // Assert
+            Assert.Contains("The token is not yet valid", ex.Message);
+        }
         public class Key
         {
             public string Id { get; set; }
@@ -435,6 +462,12 @@ namespace Tests
                 if (DateTime.UtcNow.Epoc() >= int.Parse(payload.Single(c => c.Type == "exp").Value))
                 {
                     throw new Exception("The token is expired");
+                }
+
+                var nbf = payload.SingleOrDefault(c => c.Type == "nbf");
+                if (nbf != null && DateTime.UtcNow.Epoc() < int.Parse(nbf.Value))
+                {
+                    throw new Exception("The token is not yet valid");
                 }
 
                 return payload;
