@@ -194,14 +194,6 @@ namespace Tests
 
             public ICollection<Claim> ValidateToken(string token)
             {
-                ////var keys = PublicKeys.Select(kvp =>
-                ////{
-                ////    var key = Utils.Rsa.PublicKeyFromPem(kvp.Value);
-                ////    key.KeyId = kvp.Key;
-
-                ////    return key;
-                ////});
-
                 var tokenValidationParameters = new TokenValidationParameters()
                 {
                     ValidateIssuer = true,
@@ -210,7 +202,6 @@ namespace Tests
                     ValidAudiences = Audiences,
                     RequireExpirationTime = false,
                     RequireSignedTokens = true,
-                    ////IssuerSigningKeys = keys,
                     IssuerSigningKeyResolver = (s, securityToken, kid, parameters) =>
                     {
                         if (PublicKeys.TryGetValue(kid, out var publicKey))
